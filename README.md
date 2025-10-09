@@ -17,6 +17,10 @@
     3. [Attacking Windows Credential Manager](#attacking-windows-credential-manager)
     4. [Attacking Active Directory and NTDS.dit](#attacking-active-directory-and-ntdsdit)
     5. [Credential Hunting in Windows](#credential-hunting-in-windows)
+4. [Extracting Passwords from Linux Systems](#extracting-passwords-from-linux-systems)
+    1. [Linux Authentication Process](#linux-authentication-process)
+    2. [Credential Hunting in Linux](#credential-hunting-in-linux)
+
 ## Password Cracking Techniques
 
 ### Introduction to Password Cracking
@@ -579,3 +583,38 @@
 5. What are the credentials to access the Edge-Router? (Format: username:password, Case-Sensitive)
 
     We can find this in the ansible folder. The answer is `edgeadmin:Edge@dmin123!`.
+
+## Extracting Passwords from Linux Systems
+### Linux Authentication Process
+#### Tools
+1. unshadow 
+#### Challenges
+1. Download the attached ZIP file (linux-authentication-process.zip), and use single crack mode to find martin's password. What is it?
+
+    To solve this, first we use unshadow to combine passwd and shadow file. Then we use hashcat to crack it.
+
+    ```bash
+    hashcat -m 1800 -a 0 unshadowed.hashes /home/mrwhok/ctf/HTB-Academy/footprinting/rockyou.txt -o unshadowed.cracked
+    ```
+
+    ![alt text](Assets/LNX1.png)
+
+    The answer is `Martin1`.
+
+2. Use a wordlist attack to find sarah's password. What is it?
+
+    We already have the password from the previous number. The answer is `mariposa`.
+
+### Credential Hunting in Linux
+#### Tools
+1. [Mimipenguin](https://github.com/huntergregal/mimipenguin)
+2. [firefox_decrypt](https://github.com/unode/firefox_decrypt)
+#### Challenges
+1. Examine the target and find out the password of the user Will. Then, submit the password as the answer.
+
+    We can solve this by using firefox_decrypt.py.
+
+    ```bash
+    python3.9 firefox_decrypt.py
+    ```
+    And then select 2. We can get the answer from there. The answer is `TUqr7QfLTLhruhVbCP`.
