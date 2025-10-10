@@ -20,6 +20,9 @@
 4. [Extracting Passwords from Linux Systems](#extracting-passwords-from-linux-systems)
     1. [Linux Authentication Process](#linux-authentication-process)
     2. [Credential Hunting in Linux](#credential-hunting-in-linux)
+5. [Extracting Passwords from the Network](#extracting-passwords-from-the-network)
+    1. [Credential Hunting in Network Traffic](#credential-hunting-in-network-traffic)
+    2. [Credential Hunting in Network Shares](#credential-hunting-in-network-shares)
 
 ## Password Cracking Techniques
 
@@ -618,3 +621,69 @@
     python3.9 firefox_decrypt.py
     ```
     And then select 2. We can get the answer from there. The answer is `TUqr7QfLTLhruhVbCP`.
+
+## Extracting Passwords from the Network
+### Credential Hunting in Network Traffic
+#### Tools
+1. [PCredz](https://github.com/lgandx/PCredz)
+2. Wireshark
+
+#### Challenges
+1. The packet capture contains cleartext credit card information. What is the number that was transmitted?
+
+    We can solve this by using wireshark. In the filter, we type this.
+    
+    ```bash
+    http contains "card"
+    ```
+    In the third result, we follow http stream.
+
+    ![alt text](Assets/NW1.png)
+
+    We can see the card number there. The answer is `5156 8829 4478 9834`.
+
+2. What is the SNMPv2 community string that was used?
+
+    We can type `snmp` in the filter and then follow udp stream. The answer is `s3cr3tSNMPC0mmun1ty`.
+
+3. What is the password of the user who logged into FTP?
+
+    We can type `ftp` in the filter and then follow tcp stream. The answer is `qwerty123`.
+
+4. What file did the user download over FTP?
+
+    Still in the same window like number 3 challenges, we can get the answer in there. The answer is `creds.txt`.
+
+### Credential Hunting in Network Shares
+#### Tools
+1. [Snaffler](https://github.com/SnaffCon/Snaffler)
+2. [PowerHuntShares](https://github.com/NetSPI/PowerHuntShares)
+3. [MANSPIDER](https://github.com/blacklanternsecurity/MANSPIDER)
+4. NetExec
+#### Challenges
+1. One of the shares mendres has access to contains valid credentials of another domain user. What is their password?
+
+    To solve this, you can open file explorer and see the recent opened files. It have `split_tunnel.txt`. We can find the answer in there. 
+    
+    ![alt text](Assets/NW2.png)
+
+    The answer is `ILovePower333###`.
+
+2. As this user, search through the additional shares they have access to and identify the password of a domain administrator. What is it?
+
+    To solve this, we can use new credential that we found earlier. Use `jbader` can access Admin folder unlike `mendres` user. So i suspect that we can solve this by exploring Admin folder. In there, we can see many decoy files. Most of them contain script to generate fake password. 
+
+    ![alt text](Assets/NW3.png)
+
+    But in the HR file, it gave as a tip fo find the password.
+
+    ![alt text](Assets/NW4.png)
+
+    Then we can run the command tip. 
+
+    ```cmd
+    findstr /s /i "password" C:\HR\*.* 
+    ```
+
+    Then it gave as the answer. The answer is `Str0ng_Adm1nistrat0r_P@ssword_2025!`.
+    
