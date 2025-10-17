@@ -23,6 +23,11 @@
 5. [Extracting Passwords from the Network](#extracting-passwords-from-the-network)
     1. [Credential Hunting in Network Traffic](#credential-hunting-in-network-traffic)
     2. [Credential Hunting in Network Shares](#credential-hunting-in-network-shares)
+6. [Windows Lateral Movement Techniques](#windows-lateral-movement-techniques)
+    1. [Pass the Hash (PtH)](#pass-the-hash-pth)
+    2. [Pass the Ticket (PtT) from Windows](#pass-the-ticket-ptt-from-windows)
+    3. [Pass the Ticket (PtT) from Linux](#pass-the-ticket-ptt-from-linux)
+    4. [Pass the Certificate](#pass-the-certificate)
 
 ## Password Cracking Techniques
 
